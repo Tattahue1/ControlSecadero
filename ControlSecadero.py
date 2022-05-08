@@ -237,5 +237,3 @@ while True:
         pass
    
     time.sleep(2.0)
-        raise error
-    time.sleep(2.0)
