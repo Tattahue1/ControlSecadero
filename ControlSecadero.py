@@ -1,239 +1,195 @@
 from requests import get
-import datetime
 import pandas as pd
 import os, signal
-import time
 import board
 import adafruit_dht
 import RPi.GPIO as GPIO
-
+import time
+import datetime
+from datetime import date
+import MySQLdb
 from w1thermsensor import W1ThermSensor
+
+CONST_DATOANIO = 525600
+CONST_DATOMES = 43200
+CONST_DATOSEMANA = 10080
+CONST_DATODIA = 1440
+
+
+class Sensor:
+    def __init__(self, id, codigo):
+        self.id = id
+        self.codigo = codigo
+
+
+class DHT(Sensor):
+    def __init__(self, id, codigo):
+        self.humedad = None
+        self.temp = None
+        self.temperaturas = [None]
+        self.humedades = [None]
+
+        Sensor.__init__(self, id, codigo)
+
+        self.device = adafruit_dht.DHT22(codigo, use_pulseio=True)
+
+    def leerdatos(self):
+        try:
+            self.temp = self.device.temperature
+            self.humedad = self.device.humidity
+            self.temperaturas.append(round(self.temp, 1))
+            self.humedades.append(round(self.humedad))
+        except RuntimeError as error:
+            pass
+        except Exception as error:
+            pass
+
+    def getDatos(self):
+        datos = []
+        modaT = max(self.temperaturas, key=self.temperaturas.count)
+        modaH = max(self.humedades, key=self.humedades.count)
+        datos.append(modaT)
+        datos.append(modaH)
+        self.temperaturas = [modaT]
+        self.humedades = [modaH]
+        return datos
+
+    def mostrarDatos(self):
+        print("Sensor Numero: ", self.id, " Codigo de sensor: "
+              , self.codigo, " Temperatura del sensor: ", self.temp
+              , " Humedad del sensor: ", self.humedad)
+
+    def reiniciarTablas(self):
+        self.temperaturas = []
+        self.humedades = []
+
+
+class DS(Sensor):
+    def __init__(self, id, codigo):
+        Sensor.__init__(self, id, codigo)
+        self.temp = None
+        self.temperaturas = [None]
+
+    def leerdatos(self):
+        try:
+            for sensor in W1ThermSensor.get_available_sensors():
+                if sensor.id == self.codigo:  # sensor 8
+                    self.temp = sensor.get_temperature()
+            self.temperaturas.append(round(self.temp, 1))
+        except:
+            pass
+
+    def getDatos(self):
+        moda = max(self.temperaturas, key=self.temperaturas.count)
+        self.temperaturas = [moda]
+        return moda
+
+    def mostrarDatos(self):
+        print("Sensor Numero: ", self.id, " Codigo de sensor: "
+              , self.codigo, " Temperatura del sensor: ", self.temp)
+
+    def reiniciarTablas(self):
+        self.temperaturas = []
+
+
+class Camara:
+    def __init__(self, id):
+        self.id = id
+        self.tam = 0
+        self.sensores = []
+
+    def agregarSensor(self, sensor):
+        self.tam += 1
+        self.sensores.append(sensor)
+
+    def getDatos(self):
+        return self.sensores
+
+    def mostrarSensores(self):
+        for i in range(len(self.sensores)):
+            self.sensores[i].mostrarDatos()
+
+    def getTam(self):
+        return self.tam
+
+    def reiniciarTabla(self):
+        for i in range(len(self.sensores)):
+            self.sensores[i].reiniciarTablas()
+
+
+db2 = MySQLdb.connect(host="bt5oimjjyou8twabxrxj-mysql.services.clever-cloud.com", user="ucsdioytffgjrvnf",
+                      passwd="8wzDXU0L1nApbdR6FcSn", db="bt5oimjjyou8twabxrxj")
+cur2 = db2.cursor()
+
+db = MySQLdb.connect(host="localhost", user="raspi", passwd="warden7", db="clima")
+cur = db.cursor()
 
 sensor = W1ThermSensor()
 
-os.system("sudo pkill libgpiod_pulsei") #Para reiniciar los pulsos del sensor DHT
+os.system("sudo pkill libgpiod_pulsei")  # Para reiniciar los pulsos del sensor DHT
 
-dhtDevice5 = adafruit_dht.DHT22(board.D22,use_pulseio = True) #Camara 7
-dhtDevice4 = adafruit_dht.DHT22(board.D10,use_pulseio = True)
-dhtDevice3 = adafruit_dht.DHT22(board.D9,use_pulseio = True)
-dhtDevice2 = adafruit_dht.DHT22(board.D11,use_pulseio = True)
-dhtDevice1 = adafruit_dht.DHT22(board.D5,use_pulseio = True) #6, 13, 19
+posiciones10 = [11, 22, 33, 44, 55]
+posiciones7 = [11, 20, 30, 40, 50, 60, 70, 80]
 
-dhtDevicecam1 = adafruit_dht.DHT22(board.D19,use_pulseio = True) #Camara 10
-dhtDevicecam2 = adafruit_dht.DHT22(board.D13,use_pulseio = True)
-dhtDevicecam3 = adafruit_dht.DHT22(board.D6,use_pulseio = True)
+camara7 = Camara(7)
+camara10 = Camara(10)
 
-temperature_c1 =0
-humidity1 =0
-temperature_c2 =0
-humidity2 =0
-temperature_c3 =0
-humidity3 =0
-temperature_c4 =0
-humidity4 =0
-temperature_c5 =0
-humidity5 =0
-tempsensor6 = 0
-tempsensor7 = 0
-tempsensor8 = 0
+camara7.agregarSensor(DHT(1, board.D5))
+camara7.agregarSensor(DHT(2, board.D11))
+camara7.agregarSensor(DHT(3, board.D9))
+camara7.agregarSensor(DHT(4, board.D24))
+camara7.agregarSensor(DHT(5, board.D22))
+camara7.agregarSensor(DS(6, "3c01f095f809"))
+camara7.agregarSensor(DS(7, "3c01f0959343"))
+camara7.agregarSensor(DS(8, "3c01f095afbc"))
 
-
-temperaturec1 =0
-humidityc1 =0
-temperaturec2 =0
-humidityc2 =0
-temperaturec3 =0
-humidityc3 =0
-
-tempsensorc4 = 0
-tempsensorc5 = 0
+camara10.agregarSensor(DHT(1, board.D19))
+camara10.agregarSensor(DHT(2, board.D13))
+camara10.agregarSensor(DHT(3, board.D6))
+camara10.agregarSensor(DS(7, "3c01f0959d2d"))
+camara10.agregarSensor(DS(7, "3c01f0954842"))
 
 anterior = -1
 anthora = -1
 
-#Obtencion de datos de cada sensor
 while True:
-   
-    #     Codigo que guarda los datos del sensor en archivos .csv
-    if datetime.datetime.now().minute != anterior: #Guarda si ha pasado un minuto
+
+    for i in range(camara7.getTam()):
+        camara7.sensores[i].leerdatos()
+    for j in range(camara10.getTam()):
+        camara10.sensores[j].leerdatos()
+
+    if datetime.datetime.now().minute != anterior:  # Guarda si ha pasado un minuto
         anterior = datetime.datetime.now().minute
-        ahora=datetime.datetime.now()
-        ahora = str(ahora)[0:10]
-        file = "/home/pi/Pruebas/" +ahora + "camara7" + ".csv"
         try:
-            df=pd.read_csv(file)
-            df=df.drop('Unnamed: 0',axis=1)
-            aux= datetime.datetime.now()
-            aux = str(aux)[11:16]
-            df=df.append({'Hora':aux,'Temp 1':temperature_c1,'Temp 2':temperature_c2,
-                          'Temp 3':temperature_c3,'Temp 4':temperature_c4,'Temp 5':temperature_c5,
-                          'Humedad 1':humidity1,'Humedad 2':humidity2,'Humedad 3':humidity3,
-                          'Humedad 4':humidity4,'Humedad 5':humidity5,'Sensor 6':tempsensor6,
-                          'Sensor 7':tempsensor7,'Sensor 8':tempsensor8},ignore_index=True)
-            file = "/home/pi/Pruebas/" +ahora+ "camara7" + ".csv"
-            df.to_csv(file)
+            cur.execute()
+            db.commit()
         except:
-            aux= datetime.datetime.now()
-            aux = str(aux)[11:16]
-            df=pd.DataFrame(columns = ['Hora', 'Temp 1','Humedad 1','Temp 2','Humedad 2','Temp 3',
-                                      'Humedad 3','Temp 4','Humedad 4','Temp 5','Humedad 5',
-                                      'Sensor 6', 'Sensor 7','Sensor 8'])
-            df=df.append({'Hora':aux,'Temp 1':temperature_c1,'Temp 2':temperature_c2,
-                          'Temp 3':temperature_c3,'Temp 4':temperature_c4,'Temp 5':temperature_c5,
-                          'Humedad 1':humidity1,'Humedad 2':humidity2,'Humedad 3':humidity3,
-                          'Humedad 4':humidity4,'Humedad 5':humidity5,'Sensor 6':tempsensor6,
-                          'Sensor 7':tempsensor7,'Sensor 8':tempsensor8},ignore_index=True)
-            file = "/home/pi/Pruebas/" +ahora + "camara7"+ ".csv"
-            df.to_csv(file)
-           
-        file2 = "/home/pi/Pruebas/" +ahora + "camara10" + ".csv"  
+            pass
         try:
-            df=pd.read_csv(file2)
-            df=df.drop('Unnamed: 0',axis=1)
-            aux= datetime.datetime.now()
-            aux = str(aux)[11:16]
-            print(aux)
-            df=df.append({'Hora':aux,'Temp 1':tempsensorc1,'Temp 2':tempsensorc2,
-                          'Temp 3':tempsensorc3,'Temp 4':tempsensorc4,'Temp 5':tempsensorc5,
-                          'Humedad 1':humidityc1,'Humedad 2':humidityc2,'Humedad 3':humidityc3},ignore_index=True)
-            file2 = "/home/pi/Pruebas/" +ahora+ "camara10" + ".csv"
-            df.to_csv(file2)
+            cur.execute('''TRUNCATE TABLE HUMXTEM;''')
+            cur.execute()
+            db.commit()
         except:
-            aux= datetime.datetime.now()
-            aux = str(aux)[11:16]
-            df=pd.DataFrame(columns = ['Hora', 'Temp 1','Humedad 1','Temp 2','Humedad 2','Temp 3',
-                                      'Humedad 3','Temp 4','Temp 5'])
-            df=df.append({'Hora':aux,'Temp 1':temperaturec1,'Temp 2':temperaturec1,
-                          'Temp 3':temperaturec1,'Temp 4':temperaturec1,'Temp 5':temperaturec1,
-                          'Humedad 1':humidityc1,'Humedad 2':humidityc2,'Humedad 3':humidityc3},ignore_index=True)
-            file2 = "/home/pi/Pruebas/" +ahora + "camara10"+ ".csv"
-            df.to_csv(file2)
-       
-    if datetime.datetime.now().hour != anthora: #Guarda si ha pasado una hora
-        anthora = datetime.datetime.now().hour
-        ahora=datetime.datetime.now()
-        ahora = str(ahora)[0:10]
-        file = "/home/pi/Pruebas/" + ahora + "HORAS"+ "camara7" + ".csv"
+            pass
+        tiempo = datetime.datetime.now()
         try:
-            df=pd.read_csv(file)
-            df=df.drop('Unnamed: 0',axis=1)
-            df=df.append({'Hora':datetime.datetime.now().hour,'Temp 1':temperature_c1,'Temp 2':temperature_c2,
-                          'Temp 3':temperature_c3,'Temp 4':temperature_c4,'Temp 5':temperature_c5,
-                          'Humedad 1':humidity1,'Humedad 2':humidity2,'Humedad 3':humidity3,
-                          'Humedad 4':humidity4,'Humedad 5':humidity5,'Sensor 6':tempsensor6,
-                          'Sensor 7':tempsensor7,'Sensor 8':tempsensor8},ignore_index=True)
-            file = "/home/pi/Pruebas/" +ahora + "HORAS"+ "camara7" + ".csv"
-            df.to_csv(file)
+            cur2.execute()
+            db2.commit()
         except:
-            df=pd.DataFrame(columns = ['Hora', 'Temp 1','Humedad 1','Temp 2','Humedad 2','Temp 3',
-                                      'Humedad 3','Temp 4','Humedad 4','Temp 5','Humedad 5',
-                                      'Sensor 6', 'Sensor 7','Sensor 8'])
-            df=df.append({'Hora':datetime.datetime.now().hour,'Temp 1':temperature_c1,'Temp 2':temperature_c2,
-                          'Temp 3':temperature_c3,'Temp 4':temperature_c4,'Temp 5':temperature_c5,
-                          'Humedad 1':humidity1,'Humedad 2':humidity2,'Humedad 3':humidity3,
-                          'Humedad 4':humidity4,'Humedad 5':humidity5,'Sensor 6':tempsensor6,
-                          'Sensor 7':tempsensor7,'Sensor 8':tempsensor8},ignore_index=True)
-            file ="/home/pi/Pruebas/" + ahora + "HORAS"+ "camara7" + ".csv"
-            df.to_csv(file)
-       
-        file2 = "/home/pi/Pruebas/" + ahora + "HORAS"+ "camara10" + ".csv"
+            pass
         try:
-            df=pd.read_csv(file2)
-            df=df.drop('Unnamed: 0',axis=1)
-            df=df.append({'Hora':datetime.datetime.now().hour,'Temp 1':tempsensorc1,'Temp 2':tempsensorc2,
-                          'Temp 3':tempsensorc3,'Temp 4':tempsensorc4,'Temp 5':tempsensorc5,
-                          'Humedad 1':humidityc1,'Humedad 2':humidityc2,'Humedad 3':humidityc3},ignore_index=True)
-            file2 = "/home/pi/Pruebas/" +ahora + "HORAS"+ "camara10" + ".csv"
-            df.to_csv(file2)
+            cur2.execute())
+            db2.commit()
         except:
-            df=pd.DataFrame(columns = ['Hora', 'Temp 1','Humedad 1','Temp 2','Humedad 2','Temp 3',
-                                      'Humedad 3','Temp 4','Temp 5'])
-            df=df.append({'Hora':datetime.datetime.now().hour,'Temp 1':temperaturec1,'Temp 2':temperaturec1,
-                          'Temp 3':temperaturec1,'Temp 4':temperaturec1,'Temp 5':temperaturec1,
-                          'Humedad 1':humidityc1,'Humedad 2':humidityc2,'Humedad 3':humidityc3},ignore_index=True)
-            file2 ="/home/pi/Pruebas/" + ahora + "HORAS"+ "camara10" + ".csv"
-            df.to_csv(file2)
-           
-   
-    #Obtencion de datos de cada sensor
-    try:
-        temperature_c1 = dhtDevice1.temperature
-        humidity1 = dhtDevice1.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperature_c2 = dhtDevice2.temperature
-        humidity2 = dhtDevice2.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperature_c3 = dhtDevice3.temperature
-        humidity3 = dhtDevice3.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperature_c4 = dhtDevice4.temperature
-        humidity4 = dhtDevice4.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass  
-   
-    try:
-        temperature_c5 = dhtDevice5.temperature
-        humidity5 = dhtDevice5.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperaturec1 = dhtDevicecam1.temperature
-        humidityc1 = dhtDevicecam1.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperaturec2 = dhtDevicecam2.temperature
-        humidityc2 = dhtDevicecam2.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        temperaturec3 = dhtDevicecam3.temperature
-        humidityc3 = dhtDevicecam3.humidity
-    except RuntimeError as error:
-        continue
-    except Exception as error:
-        pass
-   
-    try:
-        for sensor in W1ThermSensor.get_available_sensors():
-            if sensor.id == "3c01f095afbc": #sensor 8
-                tempsensor8 = sensor.get_temperature()
-            elif sensor.id == "3c01f0959343": #sensor 7
-                tempsensor7 = sensor.get_temperature()
-            elif sensor.id == "3c01f095f809": #sensor 6
-                tempsensor6 = sensor.get_temperature()
-            elif sensor.id == "3c01f0959d2d": #sensor 6
-                temperaturec4 = sensor.get_temperature()
-            else:
-                temperaturec5 = sensor.get_temperature()
-#             Sen 6 = 809  Sen 7 = 343 Sen 8 = fbc
-    except Exception as error:
-        pass
-   
+            pass
+
+    if cur.execute("SELECT * FROM CAMARA7") > (CONST_DATOANIO + CONST_DATOMES):
+        cur.execute("DELETE FROM CAMARA7 LIMIT 43200")
+    if cur.execute("SELECT * FROM CAMARA10") > (CONST_DATOANIO + CONST_DATOMES):
+        cur.execute("DELETE FROM CAMARA10 LIMIT 43200")
+
+    if cur2.execute("SELECT * FROM CAMARA10") > (CONST_DATOSEMANA + CONST_DATODIA):
+        cur2.execute("DELETE FROM CAMARA10 LIMIT 1440")
+        cur2.execute("DELETE FROM CAMARA7 LIMIT 1440")
     time.sleep(2.0)
